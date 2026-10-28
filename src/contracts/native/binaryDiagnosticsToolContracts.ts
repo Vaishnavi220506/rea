@@ -67,7 +67,12 @@ export const inspectNativeExportsRequestSchema =
 
 /** Public byte-entropy input retains the producer schema's closed-object policy. */
 export const inspectByteEntropyRequestSchema =
-  inspectByteEntropyInputSchema.extend({ detail: analysisDetailSchema });
+  inspectByteEntropyInputSchema.extend({
+    path: absoluteLocalPathStringSchema.describe(
+      "Absolute filesystem path to the file to inspect",
+    ),
+    detail: analysisDetailSchema,
+  });
 
 const inspectElfNotesMcpInputSchema = inspectElfNotesInputSchema.extend({
   path: absoluteLocalPathStringSchema.describe(
@@ -98,6 +103,9 @@ export const BINARY_DIAGNOSTICS_TOOL_CONTRACTS = [
     description:
       "Inspect an explicit local flattened devicetree blob (FDT v16/v17) without execution or external tools. Returns validated header, memory reservations, full node/property tree with bounded raw hex, derived standard strings, cells and parent-sized reg tuples, aliases and selected single-cell phandle references with unresolved targets. Binding-specific arrays, overlays and runtime hardware remain unknown. Malformed structure or exhausted named budgets fails without partial success. Complete detail returns all Evidence inline; summary retains it for inspect_analysis_view kind devicetree, collections nodes, properties (requires exact path), reservations and references, with offset/limit pagination.",
     inputSchema: inspectDevicetreeInputSchema.extend({
+      path: absoluteLocalPathStringSchema.describe(
+        "Absolute filesystem path to a flattened devicetree blob",
+      ),
       detail: analysisDetailSchema,
     }),
     outputSchema: analysisDetailOutputSchemaOf(

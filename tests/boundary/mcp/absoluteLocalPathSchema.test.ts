@@ -1,9 +1,11 @@
 import { Client, InMemoryTransport } from "@modelcontextprotocol/client";
 import { Ajv2020 } from "ajv/dist/2020.js";
-import { resolve } from "node:path";
+import { writeFile } from "node:fs/promises";
+import { join, resolve } from "node:path";
 import { expect, it } from "vitest";
 
 import { createTestBinarySession } from "../../fixtures/binarySession.js";
+import { createTestTempDirectory } from "../../fixtures/temporaryDirectory.js";
 import { parseMcpToolError } from "../../fixtures/mcpToolError.js";
 import { createServer } from "../../../src/server/createServer.js";
 import { silentLogger } from "../../../src/logger.js";
@@ -121,6 +123,18 @@ const mcpAbsolutePathCases = (
     ),
     pathCase(
       "inspect_kernel_module",
+      "path",
+      { path: absolute },
+      { path: relative },
+    ),
+    pathCase(
+      "inspect_byte_entropy",
+      "path",
+      { path: absolute },
+      { path: relative },
+    ),
+    pathCase(
+      "inspect_devicetree",
       "path",
       { path: absolute },
       { path: relative },
@@ -360,6 +374,64 @@ it("advertises full host-absolute path constraints after SDK schema conversion",
     await close();
   }
 });
+
+it("advertises binary diagnostics absolute paths in the compact profile", async () => {
+  const { client, close } = await createMcp([], "compact");
+  try {
+    const tools = (await client.listTools()).tools;
+    const ajv = new Ajv2020({ strict: false, validateFormats: false });
+    for (const name of [
+      "inspect_byte_entropy",
+      "inspect_devicetree",
+      "inspect_elf_notes",
+      "inspect_apple_ips",
+      "inspect_kernel_module",
+    ]) {
+      const tool = tools.find((entry) => entry.name === name);
+      if (tool === undefined) throw new Error(`Missing tool ${name}`);
+      const validate = ajv.compile(tool.inputSchema);
+      expect(validate({ path: "relative-input" }), name).toBe(false);
+      expect(validate({ path: resolve("rea-absolute-input") }), name).toBe(
+        true,
+      );
+      expect(
+        validate({ path: `${resolve("rea-absolute-input")}\0` }),
+        name,
+      ).toBe(false);
+    }
+  } finally {
+    await close();
+  }
+});
+
+it.each(["full", "compact"] as const)(
+  "admits absolute byte-entropy input and rejects relative input in %s MCP profile",
+  async (profile) => {
+    const directory = await createTestTempDirectory("rea-entropy-path-");
+    const path = join(directory, "sample.bin");
+    await writeFile(path, Buffer.alloc(512));
+    const { client, close } = await createMcp([], profile);
+    try {
+      const relative = await client.callTool({
+        name: "inspect_byte_entropy",
+        arguments: { path: "sample.bin" },
+      });
+      expect(relative.isError).toBe(true);
+      expect(JSON.stringify(relative)).toContain("absolute");
+      const absolute = await client.callTool({
+        name: "inspect_byte_entropy",
+        arguments: { path },
+      });
+      expect(absolute.isError).not.toBe(true);
+      expect(absolute.structuredContent).toMatchObject({
+        operation: "inspect_byte_entropy",
+        normalized_result: { artifact: { path, bytes: 512 } },
+      });
+    } finally {
+      await close();
+    }
+  },
+);
 
 it("rejects relative paths through in-memory MCP handlers", async () => {
   const firmwareCalls: string[] = [];
